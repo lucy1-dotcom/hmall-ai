@@ -1,0 +1,9 @@
+# 本地开发配置（spring.profiles.active: local）
+# 本文件随仓库提交，只保留占位符：运行前请把下面的值改成你自己的环境，
+# 否则服务会因解析不到 MySQL 地址而启动失败。
+hm:
+  db:
+    # MySQL 所在主机的 IP（改成你自己的虚拟机地址）
+    host: 你的MySQL地址
+    # docker 中 MySQL 的 root 密码
+    pw: 你的MySQL密码

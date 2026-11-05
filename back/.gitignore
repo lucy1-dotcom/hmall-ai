@@ -1,0 +1,178 @@
+# ===========================================================================
+# hmall 后端仓库忽略规则
+# 技术栈：Spring Boot 2.7.12 · Spring Cloud 2021.0.3 · Spring Cloud Alibaba
+#         Maven 多模块（hm-common / hm-api / hm-service / *-service / hm-gateway）
+#         Java 11 · MyBatis-Plus · Knife4j
+# 说明：规则按目录名递归匹配，新增业务模块（如 seckill-service）无需再改本文件。
+#      与子模块内自带的 .gitignore 叠加生效，本文件中的白名单（! 开头的规则）
+#      必须写在其对应的忽略规则之后。
+# ===========================================================================
+
+# ---------------------------------------------------------------------------
+# 1. Maven 编译与构建产物
+# ---------------------------------------------------------------------------
+# 每个模块执行 mvn clean package 后都会生成 target/，是最大的噪音来源
+target/
+# 若源码包路径中恰好出现名为 target 的目录（极少见），不要误伤
+!**/src/main/**/target/
+!**/src/test/**/target/
+
+# 构建期间由各类 Maven 插件临时写入的文件
+pom.xml.tag
+pom.xml.releaseBackup
+pom.xml.versionsBackup
+pom.xml.next
+release.properties
+dependency-reduced-pom.xml
+buildNumber.properties
+.flattened-pom.xml
+.mvn/timing.properties
+# mvnw 使用的 wrapper jar。想让 clone 下来的仓库离线可构建，请删除下面这一行
+.mvn/wrapper/maven-wrapper.jar
+
+# ---------------------------------------------------------------------------
+# 2. Java 编译产物与打包归档
+# ---------------------------------------------------------------------------
+*.class
+*.jar
+*.war
+*.ear
+*.nar
+
+# 手工打出来的压缩包 / 备份包
+*.zip
+*.tar
+*.tar.gz
+*.rar
+*.7z
+
+# ---------------------------------------------------------------------------
+# 3. IntelliJ IDEA（本项目主 IDE）
+# ---------------------------------------------------------------------------
+# .idea/ 内的 workspace.xml、shelf、jarRepositories.xml 等都带本机绝对路径，
+# 多人协作时必然冲突，整体忽略
+.idea/
+*.iml
+*.ipr
+*.iws
+.idea_modules/
+# JRebel / Java 热部署插件生成的 XML
+rebel.xml
+
+# ---------------------------------------------------------------------------
+# 4. Eclipse / VS Code / NetBeans（有人用别的编辑器时兜底）
+# ---------------------------------------------------------------------------
+.classpath
+.project
+.settings/
+.factorypath
+.apt_generated/
+.apt_generated_tests/
+bin/
+out/
+build/
+.vscode/
+*.code-workspace
+nbproject/private/
+nbbuild/
+dist/
+nbdist/
+nbactions.xml
+
+# ---------------------------------------------------------------------------
+# 5. 日志与 JVM 运行时输出
+# ---------------------------------------------------------------------------
+# 各服务 application.yaml 里配置了 logging.file.path: logs/${spring.application.name}
+# 因此根目录会生成 logs/cart-service/spring.log 之类的目录
+logs/
+*.log
+# Spring Boot 的滚动日志：spring.log.2026-11-05.0.gz
+*.log.*
+*.log.gz
+
+# JVM 崩溃与内存分析产物
+hs_err_pid*
+replay_pid*
+*.hprof
+javacore.*
+*.dmp
+core.*
+*.HeapDump
+javacore*.*
+
+# ---------------------------------------------------------------------------
+# 6. 真正的敏感文件（本地环境配置不在此列，见下方说明）
+# ---------------------------------------------------------------------------
+# 说明：各模块 src/main/resources/application-local.yaml 是随仓库提交的，
+# 里面机器相关的值已经写成“你的MySQL地址 / 你的MySQL密码”占位符，
+# 每个开发者 clone 后自己填，因此这里不再忽略它们。
+# 下面这些才是无论谁提交都不该入库的东西：真实的 .env、私钥、口令备份。
+.env
+.env.*
+.envrc
+!.env.example
+!.env.template
+
+# 私钥 / 密钥库。本仓库的 hmall.jks 是教学用 JWT 签名密钥（口令固定），
+# 需要随代码入库，故单独放开；换成真实密钥时请删除下面这行白名单
+*.jks
+*.keystore
+*.p12
+*.pfx
+*.pem
+*.key
+!**/src/main/resources/hmall.jks
+
+# 本地数据库导出与备份
+*.dump
+*.sql.bak
+*.sql.gz
+
+# ---------------------------------------------------------------------------
+# 7. 测试与覆盖率报告
+# ---------------------------------------------------------------------------
+test-output/
+surefire-reports/
+failsafe-reports/
+*.exec
+jacoco.exec
+jacoco-*.exec
+
+# ---------------------------------------------------------------------------
+# 8. 中间件本地数据（Nacos / Docker 数据卷等，若在本目录下启动）
+# ---------------------------------------------------------------------------
+docker-data/
+nacos-data/
+# Nacos 本地持久化配置与日志
+nacos/logs/
+nacos/data/
+# Redis / MySQL 的本地 rdb、慢查询、数据目录
+*.rdb
+*.aof
+dump.rdb
+*.slow.log
+
+# ---------------------------------------------------------------------------
+# 9. 操作系统与工具链杂物
+# ---------------------------------------------------------------------------
+# macOS
+.DS_Store
+._*
+.AppleDouble
+# Windows
+Thumbs.db
+ehthumbs.db
+ehthumbs_vista.db
+Desktop.ini
+$RECYCLE.BIN/
+*.lnk
+# Linux
+*~
+.directory
+# 编辑器临时文件
+*.swp
+*.swo
+*.tmp
+.history/
+# Maven 本地仓库误落在项目内时（例如配置了 maven.repo.local=.m2）
+.m2/

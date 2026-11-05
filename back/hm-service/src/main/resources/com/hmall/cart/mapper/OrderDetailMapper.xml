@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE com.hmall.cart.mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-com.hmall.cart.mapper.dtd">
+<com.hmall.cart.mapper namespace="com.hmall.com.hmall.cart.mapper.OrderDetailMapper">
+
+</com.hmall.cart.mapper>

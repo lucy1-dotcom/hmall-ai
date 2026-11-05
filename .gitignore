@@ -1,0 +1,255 @@
+# ===========================================================================
+# hmall 全栈工程忽略规则（放在仓库根目录，对 back/ 与 front/ 同时生效）
+# ---------------------------------------------------------------------------
+# 目录约定：
+#   back/    Java 微服务后端（Spring Cloud + Maven 多模块 + IDEA 开发）
+#   front/   Windows 版 Nginx 运行环境，静态站点源码在 front/html/ 下
+#            ├─ nginx.exe / conf / contrib / docs / logs / temp  → 本地运行环境，绝不提交
+#            └─ html/hmall-portal、hmall-admin、hm-refresh-admin → 源码，必须提交
+#
+# 使用说明：
+#   1) 规则按目录层级递归匹配，所以 target/、.idea/ 这类写法不用写死具体模块名，
+#      以后新增 seckill-service 之类的模块也不用改本文件。
+#   2) 本文件与子目录里的 back/.gitignore 叠加生效；两者冲突时子目录优先，
+#      建议最终只保留这一份，避免两处规则各改各的。
+#   3) 白名单（! 开头的规则）必须写在对应的忽略规则之后，顺序颠倒会失效。
+# ===========================================================================
+
+
+# ===========================================================================
+# 一、后端 back/ —— Maven 编译产物
+# ===========================================================================
+# 每个模块执行 mvn package / IDEA Build 都会生成 target/（classes、jar、
+# generated-sources、maven-status 等），体积大且随时可重建，必须全部忽略。
+# 末尾的 / 表示只匹配目录，不会误伤名叫 target 的文件。
+target/
+# 极少数情况下源码包路径里会真的出现 target 目录，这两行把它保护回来
+!**/src/main/**/target/
+!**/src/test/**/target/
+
+# Maven 插件在执行过程中写下的临时文件（执行 release / versions / flatten 时产生）
+pom.xml.tag
+pom.xml.releaseBackup
+pom.xml.versionsBackup
+pom.xml.next
+release.properties
+dependency-reduced-pom.xml
+buildNumber.properties
+.flattened-pom.xml
+.mvn/timing.properties
+# mvnw 的 wrapper jar；想要 clone 下来离线可构建就删掉下面这行，让它入库
+.mvn/wrapper/maven-wrapper.jar
+
+
+# ===========================================================================
+# 二、后端 —— Java 编译产物与打包归档
+# ===========================================================================
+# 编译出来的 class，任何地方出现都不该入库（target/ 已被整体忽略，这里兜底）
+*.class
+# 打包产物。注意：如果你在仓库里故意放了一个要提交的 jar，需要单独用 ! 放行
+*.jar
+*.war
+*.ear
+*.nar
+# 手工打的压缩包 / 备份包
+*.zip
+*.tar
+*.tar.gz
+*.rar
+*.7z
+
+
+# ===========================================================================
+# 三、IDEA 工程文件（后端模块 与 前端 front/html/*/ 下的 .idea 一起覆盖）
+# ===========================================================================
+# .idea/ 里的 workspace.xml、shelf、jarRepositories.xml、dataSources 都带
+# 本机绝对路径和你的个人配置，多人协作时不提交反而更省事。
+# front/html/hmall-portal、hmall-admin、hm-refresh-admin 曾被 IDEA 打开过，
+# 各自生成了 .idea，靠这条通配规则一并忽略，无需逐个写。
+.idea/
+# IDEA 的模块文件，Maven 项目里由 pom.xml 生成，不必入库
+*.iml
+*.ipr
+*.iws
+.idea_modules/
+# JRebel / 热部署插件生成的 XML
+rebel.xml
+
+
+# ===========================================================================
+# 四、日志文件（后端的 logs/ 与前端的 nginx logs/ 都能被这条覆盖）
+# ===========================================================================
+# 后端 application.yaml 里配置了 logging.file.path: logs/${spring.application.name}，
+# 会在 back/ 下生成 logs/cart-service/spring.log 之类的目录结构
+logs/
+# 普通日志文件
+*.log
+# Spring Boot 的滚动日志：spring.log.2026-11-05.0.gz
+*.log.*
+*.log.gz
+# JVM 崩溃现场与堆转储，动辄几百 MB，绝不能进仓库
+hs_err_pid*
+replay_pid*
+*.hprof
+javacore.*
+*.dmp
+core.*
+*.HeapDump
+javacore*.*
+
+
+# ===========================================================================
+# 五、本地环境配置与密钥
+# ===========================================================================
+# 说明：各模块的 application-local.yaml 是随仓库提交的，里面机器相关的值
+# 已经写成“你的MySQL地址 / 你的MySQL密码”占位符，每人 clone 后自己填。
+# 因此这里不忽略它；下面这些才是真正不能入库的东西。
+# 真实的 .env（如果有）
+.env
+.env.*
+.envrc
+# .env 的模板文件要保留，方便别人知道要配哪些变量
+!.env.example
+!.env.template
+
+# 私钥 / 证书 / 密钥库。本工程用到的 hmall.jks 是教学用 JWT 签名密钥、
+# 口令固定且必须随代码入库（classpath:hmall.jks），所以单独放行；
+# 换成真实生产密钥时，把最后那行白名单删掉。
+*.jks
+*.keystore
+*.p12
+*.pfx
+*.pem
+*.key
+!**/src/main/resources/hmall.jks
+
+# 本地数据库导出与备份
+*.dump
+*.sql.bak
+*.sql.gz
+
+
+# ===========================================================================
+# 六、前端 front/ —— Nginx 本地运行环境（重点：整目录拒绝）
+# ===========================================================================
+# front/ 是直接解压的 Windows 版 Nginx：nginx.exe（3.7 MB 二进制）、conf/、
+# contrib/、docs/、logs/、temp/ 全部是本机运行环境，换台机器重新解压即可，
+# 不能提交，也不该进版本库。
+#
+# 这里用“先全拒、再放行源码”的写法：
+#   front/*      忽略 front 下的一级子项（* 不跨斜杠，所以只影响第一层）
+#   !front/html/ 把 html 目录整体放行，其内部文件不再被任何规则命中
+# 好处是：以后 Nginx 目录里多出 nginx.pdb、*.dll 之类的东西也会自动被忽略，
+# 不用回来补规则。
+front/*
+# 静态站点源码目录必须保留
+!front/html/
+
+# 如果以后在 front 根目录放了需要入库的文本文件（启动脚本、说明文档），
+# 取消下面几行的注释即可；.md/.bat/.cmd/.ps1/.sh 不会是 Nginx 自带的文件。
+# !front/*.md
+# !front/*.bat
+# !front/*.cmd
+# !front/*.ps1
+# !front/*.sh
+
+# Nginx 运行时产生的临时目录（如果哪天 front/* 规则被改掉，这几条仍然保底）
+front/temp/
+front/logs/
+
+# 前端站点里可能残留的构建/依赖目录（纯静态页面一般没有，留作防御）
+node_modules/
+dist/
+coverage/
+
+
+# ===========================================================================
+# 七、前端 —— 必须入库的源码清单（写在这里当“护栏”，一律不匹配任何忽略规则）
+# ===========================================================================
+# 下面列出的路径就是被第六节放行、最终会进仓库的内容：
+#   front/html/hmall-portal/*.html       商品首页、搜索、购物车、订单、支付等页面
+#   front/html/hmall-portal/css/         样式
+#   front/html/hmall-portal/js/          脚本
+#   front/html/hmall-portal/img/         图片
+#   front/html/hmall-admin/              管理后台
+#   front/html/hm-refresh-admin/         刷新数据用的后台
+#   front/html/50x.html、index.html、verification.html  Nginx 默认页/跳转页
+# 切记不要在第六节里写成 front/* 之外再加一条 *.* 之类的规则，
+# 那会把 html/css/js 一起干掉。
+#
+# 提交前用下面两条命令自检：
+#   git status --ignored --short           # 看哪些被忽略了
+#   git check-ignore -v front/nginx.exe    # 看某条规则来自哪一行
+
+
+# ===========================================================================
+# 八、其它 IDE / 编辑器（团队里有人用 Eclipse、VS Code 时兜底）
+# ===========================================================================
+.classpath
+.project
+.settings/
+.factorypath
+.apt_generated/
+.apt_generated_tests/
+# Eclipse / VS Code 的编译输出目录，与 target/ 作用相同
+bin/
+out/
+build/
+.vscode/
+*.code-workspace
+# NetBeans
+nbproject/private/
+nbbuild/
+dist/
+nbdist/
+nbactions.xml
+
+
+# ===========================================================================
+# 九、操作系统垃圾文件
+# ===========================================================================
+# macOS 的目录元数据，几乎每个文件夹都会冒出来
+.DS_Store
+._*
+.AppleDouble
+.Spotlight-V100
+.Trashes
+.fseventsd
+# 外接磁盘/压缩包里带出来的 Mac 图标文件
+Icon?
+# Windows 的缩略图缓存与系统文件
+Thumbs.db
+ehthumbs.db
+ehthumbs_vista.db
+Desktop.ini
+$RECYCLE.BIN/
+*.lnk
+# Linux / Unix 的残留文件
+*~
+.directory
+# 编辑器临时文件
+*.swp
+*.swo
+*.tmp
+.history/
+# 有人把 Maven 本地仓库指到了项目里（maven.repo.local=.m2），别把它提交上去
+.m2/
+
+
+# ===========================================================================
+# 十、测试与中间件本地数据
+# ===========================================================================
+surefire-reports/
+failsafe-reports/
+*.exec
+jacoco.exec
+jacoco-*.exec
+# 如果在本目录里跑过 docker / nacos，数据卷和持久化文件也不该入库
+docker-data/
+nacos-data/
+nacos/logs/
+nacos/data/
+*.rdb
+*.aof
+dump.rdb
+*.slow.log
