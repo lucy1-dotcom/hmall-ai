@@ -5,7 +5,7 @@ spring:
     name: gateway
   cloud:
     nacos:
-      server-addr: 你的虚拟机地址:8848
+      server-addr: 192.168.150.131:8848
     gateway:
       routes:
         - id: item # 路由规则id，自定义，唯一
@@ -28,7 +28,15 @@ spring:
           uri: lb://user-service
           predicates:
             - Path=/addresses/**,/users/**
+        - id: trade-api # 给 Python AI 服务（hmall-ai）查订单用的路由
+          uri: lb://trade-service
+          predicates:
+            - Path=/api/order/**
 hm:
+  ai: # Python AI 服务（hmall-ai），前端不直连它，统一由网关转发
+    service-url: http://hmall-ai # 走 Nacos 服务发现，别写成 IP:PORT
+    connect-timeout-ms: 3000
+    response-timeout-seconds: 180
   jwt:
     location: classpath:hmall.jks
     alias: hmall
@@ -40,3 +48,6 @@ hm:
       - /users/login
       - /items/**
       - /hi
+      - /api/order/** # 供 AI 服务内部调用，userId 由调用方显式传入
+      - /chat/** # AI 对话：经验证后转发给 Python，不走 JWT
+      - /api/chat/** # 直连网关时的同上路径（Nginx 会剥掉 /api 前缀）

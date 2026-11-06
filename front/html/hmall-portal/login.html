@@ -108,7 +108,10 @@
           .then(({token, ... user}) => {
             sessionStorage.setItem("token", token)
             util.store.set("user-info", user)
+            // return-url 是「从哪个页面跳来登录的」，用完必须清掉，
+            // 否则下次登录还会被弹回上一次停留的页面（例如已经过期的结算页）
             const url = util.store.get("return-url");
+            util.store.del("return-url");
             window.location = url || '/';
           })
           .catch(() => this.msg = '用户名或密码错误')

@@ -4,6 +4,6 @@
 hm:
   db:
     # MySQL 所在主机的 IP（改成你自己的虚拟机地址）
-    host: 你的MySQL地址
+    host: 192.168.150.131
     # docker 中 MySQL 的 root 密码
-    pw: 你的MySQL密码
+    pw: 123

@@ -1223,11 +1223,15 @@
           })
       },
       search() {
-        if (this.key !== "null") {
+        // 原来的判断写反了：this.key 是输入框里的内容，永远不等于字符串 "null"，
+        // 所以不管输入什么都会跳到不带 key 的 /search.html，关键词直接丢失。
+        // 正确逻辑：没填关键词才去空搜索页，填了就把 key 编码后带上。
+        const key = (this.key || '').trim();
+        if (!key || key === 'null') {
           window.location = '/search.html';
           return;
         }
-        window.location = '/search.html?key=' + this.key;
+        window.location = '/search.html?key=' + encodeURIComponent(key);
       },
       getUrlParam: function (name) {
         var reg = new RegExp("(^|&)" + name + "=([^&]*)(&|$)", "i");
@@ -1242,8 +1246,8 @@
         this.showOption = false;
         // 清空提示框内容
         this.options = [];
-        // 跳转页面
-        window.location = '/search.html?key=' + o;
+        // 跳转页面（同样要编码，中文关键词才不会丢）
+        window.location = '/search.html?key=' + encodeURIComponent(o);
       }
     }
   });
