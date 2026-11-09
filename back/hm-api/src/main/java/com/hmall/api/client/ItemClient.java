@@ -19,4 +19,8 @@ public interface ItemClient {
 
     @PutMapping("/items/stock/deduct")
     void deductStock(@RequestBody List<OrderDetailDTO> items);
+
+    /** 订单超时关闭时回补库存 */
+    @PutMapping("/items/stock/restore")
+    void restoreStock(@RequestBody List<OrderDetailDTO> items);
 }

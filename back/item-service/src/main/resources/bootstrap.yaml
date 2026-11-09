@@ -1,0 +1,18 @@
+# ==========================================================================
+# bootstrap 阶段就要加载的配置，所以不能放在 application.yaml
+# （Spring Boot 2.4+ 默认关闭 bootstrap，由 spring-cloud-starter-bootstrap 开启）
+# ==========================================================================
+spring:
+  application:
+    name: item-service
+  cloud:
+    nacos:
+      config:
+        server-addr: 192.168.150.131:8848
+        file-extension: yaml
+        group: DEFAULT_GROUP
+        # 公共配置：MyBatis-Plus 全局策略、日志格式，所有服务共享
+        shared-configs:
+          - data-id: hmall-common.yaml
+            group: DEFAULT_GROUP
+            refresh: true

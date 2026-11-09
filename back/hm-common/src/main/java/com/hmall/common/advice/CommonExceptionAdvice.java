@@ -6,6 +6,7 @@ import com.hmall.common.exception.CommonException;
 import com.hmall.common.exception.DbException;
 import com.hmall.common.utils.WebUtils;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnWebApplication;
 import org.springframework.http.ResponseEntity;
 import org.springframework.validation.ObjectError;
 import org.springframework.web.bind.MethodArgumentNotValidException;
@@ -16,8 +17,16 @@ import org.springframework.web.util.NestedServletException;
 import java.net.BindException;
 import java.util.stream.Collectors;
 
+/**
+ * 统一异常处理。
+ *
+ * <p>注意 {@link ConditionalOnWebApplication}：这个 advice 用的是 Servlet 的
+ * {@code WebUtils}，网关（WebFlux）虽然也依赖 hm-common，但不能注册它，
+ * 否则网关处理异常时会因为拿不到 ServletRequest 而二次报错。</p>
+ */
 @RestControllerAdvice
 @Slf4j
+@ConditionalOnWebApplication(type = ConditionalOnWebApplication.Type.SERVLET)
 public class CommonExceptionAdvice {
 
     @ExceptionHandler(DbException.class)

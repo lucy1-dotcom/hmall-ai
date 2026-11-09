@@ -1,0 +1,5 @@
+# 压测产物（脚本本身要入库，结果不入库）
+# 注意：这里的 pattern 相对于本文件所在目录（back/perf/），
+# 所以写 results/ 而不是 perf/results/
+results/
+*.jtl

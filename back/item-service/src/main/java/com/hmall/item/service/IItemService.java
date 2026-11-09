@@ -21,5 +21,7 @@ public interface IItemService extends IService<Item> {
 
     void deductStock(List<OrderDetailDTO> items);
 
+    void restoreStock(List<OrderDetailDTO> items);
+
     List<ItemDTO> queryItemByIds(Collection<Long> ids);
 }

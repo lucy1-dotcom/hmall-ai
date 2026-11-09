@@ -53,7 +53,16 @@
             <artifactId>hm-api</artifactId>
             <version>1.0.0</version>
         </dependency>
-    </dependencies>
+        <!-- Nacos 配置中心：远程配置 + 动态刷新 -->
+        <dependency>
+            <groupId>com.alibaba.cloud</groupId>
+            <artifactId>spring-cloud-starter-alibaba-nacos-config</artifactId>
+        </dependency>
+        <!-- Spring Boot 2.4+ 默认关闭 bootstrap，必须显式引入才能加载 bootstrap.yaml -->
+        <dependency>
+            <groupId>org.springframework.cloud</groupId>
+            <artifactId>spring-cloud-starter-bootstrap</artifactId>
+        </dependency>    </dependencies>
     <build>
         <finalName>${project.artifactId}</finalName>
         <plugins>

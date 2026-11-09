@@ -6,6 +6,7 @@ import com.hmall.api.client.ItemClient;
 import com.hmall.api.dto.ItemDTO;
 import com.hmall.api.dto.OrderDetailDTO;
 import com.hmall.common.exception.BadRequestException;
+import com.hmall.common.utils.CollUtils;
 import com.hmall.common.utils.UserContext;
 import com.hmall.trade.domain.dto.OrderFormDTO;
 import com.hmall.trade.domain.po.Order;
@@ -91,6 +92,49 @@ public class OrderServiceImpl extends ServiceImpl<OrderMapper, Order> implements
         order.setStatus(2);
         order.setPayTime(LocalDateTime.now());
         updateById(order);
+    }
+
+    /**
+     * 关闭超时未支付的订单，并把库存还回去。
+     *
+     * <p>关键在「条件更新」：只有把 status 从 1 改成 5 成功的那个线程才回补库存。
+     * 这样即使超时消息重复投递、或者用户刚好在此刻支付，也不会重复回补库存、
+     * 更不会把已支付订单关掉。</p>
+     *
+     * @return true 表示本次真的关闭了订单
+     */
+    @Override
+    @Transactional
+    public boolean closeUnpaidOrder(Long orderId) {
+        // 1. 先看订单当前状态，已支付/已关闭直接跳过（省一次库存调用）
+        Order order = getById(orderId);
+        if (order == null || !Integer.valueOf(1).equals(order.getStatus())) {
+            return false;
+        }
+        // 2. 条件更新：status=1 才改成 5，用数据库的原子性保证只成功一次
+        boolean closed = lambdaUpdate()
+                .eq(Order::getId, orderId)
+                .eq(Order::getStatus, 1)
+                .set(Order::getStatus, 5)
+                .set(Order::getCloseTime, LocalDateTime.now())
+                .update();
+        if (!closed) {
+            return false;
+        }
+        // 3. 回补库存
+        List<OrderDetail> details = detailService.lambdaQuery()
+                .eq(OrderDetail::getOrderId, orderId)
+                .list();
+        if (CollUtils.isNotEmpty(details)) {
+            List<OrderDetailDTO> dtos = details.stream().map(d -> {
+                OrderDetailDTO dto = new OrderDetailDTO();
+                dto.setItemId(d.getItemId());
+                dto.setNum(d.getNum());
+                return dto;
+            }).collect(Collectors.toList());
+            itemClient.restoreStock(dtos);
+        }
+        return true;
     }
 
     private List<OrderDetail> buildDetails(Long orderId, List<ItemDTO> items, Map<Long, Integer> numMap) {

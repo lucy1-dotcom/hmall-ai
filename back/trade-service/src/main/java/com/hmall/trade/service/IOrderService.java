@@ -17,4 +17,11 @@ public interface IOrderService extends IService<Order> {
     Long createOrder(OrderFormDTO orderFormDTO);
 
     void markOrderPaySuccess(Long orderId);
+
+    /**
+     * 关闭超时未支付的订单并回补库存（幂等）。
+     *
+     * @return true 表示本次确实关闭了订单
+     */
+    boolean closeUnpaidOrder(Long orderId);
 }
