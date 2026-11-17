@@ -24,6 +24,9 @@ class AgentChatData(BaseModel):
     session_id: str = Field(description="会话 id")
     model: str = Field(description="使用的模型")
     tools_used: list[str] = Field(default_factory=list, description="本次调用过的工具名，便于排查")
+    intent: str | None = Field(
+        default=None, description="识别出的意图：policy / order / shopping / chitchat"
+    )
 
 
 class AgentChatResponse(BaseModel):

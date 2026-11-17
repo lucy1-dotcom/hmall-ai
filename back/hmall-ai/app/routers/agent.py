@@ -16,7 +16,8 @@ from typing import AsyncIterator
 from fastapi import APIRouter
 from fastapi.responses import StreamingResponse
 
-from app.agents.order_agent import AgentNotConfigured, run_agent, stream_agent
+from app.agents import dispatcher
+from app.agents.order_agent import AgentNotConfigured
 from app.core.config import settings
 from app.core.exceptions import AppException
 from app.models.agent import AgentChatData, AgentChatRequest, AgentChatResponse
@@ -37,10 +38,11 @@ def _ensure_configured() -> None:
 
 @router.post(
     "/api/ai/chat",
-    summary="订单智能助理（SSE 流式）",
+    summary="智能助理（SSE 流式，按意图路由到售后 / 导购）",
     description=(
         "流式返回，事件格式：\n\n"
         '- `{"type":"meta","session_id":"..."}` 会话信息\n'
+        '- `{"type":"intent","intent":"shopping","label":"商品导购"}` 意图识别结果\n'
         '- `{"type":"tool","name":"search_policy"}` 模型正在调工具\n'
         '- `{"type":"token","content":"..."}` 文本增量\n'
         '- `{"type":"done"}` 结束\n'
@@ -59,7 +61,7 @@ async def chat_stream(req: AgentChatRequest) -> StreamingResponse:
         # 先发一条 meta，前端可以立刻拿到 session_id 用于后续多轮
         yield _sse({"type": "meta", "session_id": session_id, "model": settings.llm_model})
         try:
-            async for event in stream_agent(user_id, message, session_id):
+            async for event in dispatcher.stream_chat(user_id, message, session_id):
                 yield _sse(event)
             yield _sse({"type": "done", "session_id": session_id})
         except AgentNotConfigured as exc:  # pragma: no cover - 已在入口拦截
@@ -83,7 +85,7 @@ async def chat_stream(req: AgentChatRequest) -> StreamingResponse:
 @router.post(
     "/api/ai/chat/sync",
     response_model=AgentChatResponse,
-    summary="订单智能助理（非流式）",
+    summary="智能助理（非流式）",
     description="和 /api/ai/chat 逻辑完全一致，只是等全部生成完一次性返回 JSON，便于调试。",
 )
 async def chat_sync(req: AgentChatRequest) -> AgentChatResponse:
@@ -91,7 +93,9 @@ async def chat_sync(req: AgentChatRequest) -> AgentChatResponse:
 
     session_id = req.session_id or uuid.uuid4().hex
     try:
-        reply, tools_used = await run_agent(req.user_id, req.message, session_id)
+        reply, tools_used, intent = await dispatcher.run_chat(
+            req.user_id, req.message, session_id
+        )
     except AgentNotConfigured as exc:
         raise AppException(str(exc), code=503) from exc
     except Exception as exc:  # noqa: BLE001
@@ -106,5 +110,6 @@ async def chat_sync(req: AgentChatRequest) -> AgentChatResponse:
             session_id=session_id,
             model=settings.llm_model,
             tools_used=tools_used,
+            intent=intent.value,
         ),
     )

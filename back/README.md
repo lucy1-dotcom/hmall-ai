@@ -281,6 +281,41 @@ python perf/rag_eval.py --modes vector hybrid  # 只跑两种
 > 所以网关要**同时**放行 `/ai/**`（Nginx 转发后）和 `/api/ai/**`（直连），
 > 否则前端拿到的是 401 —— 这正是联调时真实踩到的问题。
 
+## AI 意图路由（多 Agent）
+
+一个 Agent 挂太多工具会互相干扰：问「能退吗」时它可能跑去搜商品。
+所以按意图拆成两个专职 Agent，入口先分类再分发。
+
+| 意图 | 触发示例 | Agent | 工具 |
+|---|---|---|---|
+| 售后政策 | 耳机拆封了还能退吗 | 售后 | `search_policy` |
+| 订单物流 | 我的订单到哪了 | 售后 | `get_order_status` |
+| 商品导购 | 推荐一款打游戏用的手机 | 导购 | `search_products` |
+| 闲聊 | 你好呀 | 售后 | 无 |
+
+**设计要点**
+
+1. 分类用**关键词规则**（`app/agents/intent.py`），不额外调一次模型，省约 1 秒首字延迟；
+   平票时优先级 `政策 > 订单 > 导购`——「推荐一款能退货的」按政策答更稳。
+2. 两个 Agent 共用同一个 checkpointer 和 `thread_id`，**会话记忆跨 Agent 连续**：
+   先说"我的订单到哪了"，接着说"那推荐个手机壳"，上下文不会断。
+3. SSE 新增 `intent` 事件，前端可显示「意图：商品导购（命中「推荐」）」。
+4. Agent 运行时抽到 `app/agents/base.py`，两个 Agent 只差工具集和系统提示词。
+
+**实测**
+
+| 输入 | 识别意图 | 调用工具 | 结果 |
+|---|---|---|---|
+| 推荐一款适合送礼的女式钱包 | `shopping` | `search_products` | 推荐 3 款钱包，价格换算成元 |
+| 耳机拆封了还能退吗 | `policy` | `search_policy` | 引用第三条第（一）项 |
+| 帮我把订单 xxx 取消 | `order` | `request_cancel_order` | 生成待确认动作 |
+| 你好呀 | `chitchat` | 无 | 正常寒暄 |
+
+> 踩坑：`search_products` 最初写成 `async def`，而 `vector_store` 内部用 `asyncio.run`
+> 做 embedding，在事件循环里直接调用会抛
+> `asyncio.run() cannot be called from a running event loop`；
+> 改成**同步工具**（LangChain 会丢到线程池执行）后正常。
+
 ## 压测数据（JMeter）
 
 脚本：[`perf/hmall-load-test.jmx`](perf/hmall-load-test.jmx)（参数化，可覆盖 host/port/threads/loops）

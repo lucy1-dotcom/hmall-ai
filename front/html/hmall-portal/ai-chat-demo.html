@@ -221,6 +221,7 @@
     statusEl.textContent = '连接中…';
 
     let answer = '';
+    let intentLabel = '';
     const res = await fetch(API + '/api/chat/send', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -260,8 +261,13 @@
               localStorage.setItem('hmall_ai_session', sessionId);
               statusEl.textContent = '';
               break;
+            case 'intent':
+              // 意图识别结果：告诉用户这次是谁在回答（售后 / 导购）
+              intentLabel = payload.label || payload.intent;
+              statusEl.textContent = '意图：' + intentLabel + (payload.matched ? `（命中「${payload.matched}」）` : '');
+              break;
             case 'tool':
-              statusEl.textContent = '正在调用工具：' + payload.name;
+              statusEl.textContent = (intentLabel ? `意图：${intentLabel} · ` : '') + '调用工具：' + payload.name;
               break;
             case 'token':
               answer += payload.content;

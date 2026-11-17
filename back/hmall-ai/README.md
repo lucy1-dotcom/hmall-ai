@@ -165,6 +165,25 @@ LLM_MODEL=deepseek-chat
 
 没配 `LLM_API_KEY` 时接口返回 **503** 且提示明确，不会抛 500 堆栈。
 
+## 意图路由（多 Agent）
+
+入口按关键词规则识别意图，再分发到不同 Agent（见 `app/agents/dispatcher.py`）：
+
+| 意图 | Agent | 工具 |
+|---|---|---|
+| `policy` / `order` | `order_agent`（售后） | `search_policy` / `get_order_status` / `request_cancel_order` |
+| `shopping` | `shopping_agent`（导购） | `search_products`（Milvus 语义检索） |
+| `chitchat` | `order_agent` | 无 |
+
+- 分类在 `app/agents/intent.py`，纯规则、不调模型（省一次约 1s 的首字延迟）
+- 两个 Agent 共用同一个 checkpointer + thread_id，会话记忆跨 Agent 连续
+- SSE 多一个 `{"type":"intent","intent":"shopping","label":"商品导购","matched":"推荐"}` 事件
+- 运行时公共逻辑在 `app/agents/base.py`
+
+> 坑：工具如果写成 `async def`，而内部调用 `vector_store`（它用 `asyncio.run` 做 embedding），
+> 会抛 `asyncio.run() cannot be called from a running event loop`。
+> `search_products` 因此写成同步函数，由 LangChain 丢到线程池执行。
+
 ## 流式输出与会话记忆
 
 ### 记忆（SQLite 持久化）

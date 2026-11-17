@@ -1,6 +1,6 @@
 """流式接口（SSE）的单元测试。
 
-不依赖真实模型：把 stream_agent 换成一个假的异步生成器，
+不依赖真实模型：把 dispatcher.stream_chat 换成一个假的异步生成器，
 只验证「SSE 报文格式」和「错误能否作为事件推给前端」。
 """
 
@@ -25,7 +25,7 @@ def test_stream_returns_sse_frames(monkeypatch: pytest.MonkeyPatch) -> None:
         yield {"type": "token", "content": "你"}
         yield {"type": "token", "content": "好"}
 
-    monkeypatch.setattr("app.routers.agent.stream_agent", fake_stream)
+    monkeypatch.setattr("app.agents.dispatcher.stream_chat", fake_stream)
 
     with TestClient(app) as client:
         resp = client.post("/api/ai/chat", json={"user_id": 1, "message": "hi", "session_id": "s1"})
@@ -48,7 +48,7 @@ def test_stream_emits_error_event(monkeypatch: pytest.MonkeyPatch) -> None:
         yield {"type": "token", "content": "半"}
         raise RuntimeError("模型超时")
 
-    monkeypatch.setattr("app.routers.agent.stream_agent", boom)
+    monkeypatch.setattr("app.agents.dispatcher.stream_chat", boom)
 
     with TestClient(app) as client:
         resp = client.post("/api/ai/chat", json={"user_id": 1, "message": "hi"})
