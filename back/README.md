@@ -123,6 +123,76 @@ dashboard 起来后十几秒就能在左边看到 item-service / trade-service�
 因为包扫描顺带生效了。现已加进自动配置，并加上
 `@ConditionalOnWebApplication(SERVLET)`：网关是 WebFlux，不能注册基于 Servlet 的 advice。
 
+## 商品语义搜索（Milvus 向量检索）
+
+关键词搜索走的是 `LIKE '%关键字%'`，用不上索引，而且**字面匹配不到就返回 0 条**。
+这里把商品向量化后做语义检索，解决"搜『降噪耳机』但商品名里没有『降噪』"这类问题。
+
+```
+离线：item-service /items/page 分页拉商品
+      → 拼「名称 + 品牌 + 类目 + 规格」
+      → bge-m3 向量化（1024 维）
+      → 写入 Milvus 集合 hmall_items
+
+在线：/api/ai/search → 查询向量化 → ANN 检索 top-k → 返回商品卡片（价格/图片/类目）
+```
+
+| 组件 | 位置 |
+|---|---|
+| 离线入库 | `hmall-ai/ingest_items.py`（`--limit` / `--start-page` 断点续传 / `--drop` 重建） |
+| 向量库封装 | `hmall-ai/app/crud/milvus.py`、`app/services/vector_store.py` |
+| 查询缓存 | `VectorStoreService.query_vector`：热门搜索词只算一次 embedding |
+| 接口 | `POST /ai/search`，经网关 `POST /api/ai/search` 对外 |
+| 压测脚本 | `perf/search_bench.py`（关键词 vs 语义，同一入口对比） |
+
+### 实测（83,674 条商品已入库）
+
+**召回能力**（三个自然语言查询，关键词全部 0 命中）：
+
+| 查询 | 关键词 LIKE | 语义搜索 |
+|---|---|---|
+| 降噪耳机 | **0 条** | 10 条（华为耳机 / 蓝牙对耳） |
+| 适合打游戏的手机 | **0 条** | 10 条（荣耀 10 GT 游戏加速手机，score 0.67） |
+| 送女朋友的礼物 | **0 条** | 10 条（女士钱包 / 手拿包） |
+
+**延迟**（经网关同一入口，单条请求，30 次取分位）：
+
+| 方案 | avg | p50 | p95 | p99 |
+|---|---|---|---|---|
+| 关键词搜索（MySQL LIKE） | 97.4ms | 97.7ms | 110.9ms | 113.1ms |
+| 语义搜索（缓存命中） | **6.0ms** | 5.4ms | 8.5ms | 19.2ms |
+| 语义搜索（缓存未命中） | 337ms | 323ms | 408ms | 519ms |
+
+> 语义搜索的耗时几乎全在 embedding 接口的网络往返（约 300ms），
+> Milvus 检索本身只要几毫秒。所以给查询向量加了进程内缓存：
+> 热门词重复命中后从 337ms 降到 6ms，比 LIKE 快 16 倍。
+
+### 怎么跑
+
+```bash
+cd back/hmall-ai
+python -m venv .venv
+.venv\Scripts\pip install -r requirements.txt -i https://pypi.tuna.tsinghua.edu.cn/simple
+
+# 1) 建索引（item-service 已启动）
+.venv\Scripts\python.exe ingest_items.py --limit 20000   # 先灌 2 万条试水
+.venv\Scripts\python.exe ingest_items.py                 # 全量 8.8 万条，约 25 分钟
+.venv\Scripts\python.exe ingest_items.py --start-page 428  # 中断后续传
+
+# 2) 起服务（必须监听 0.0.0.0，否则网关连不上注册的局域网 IP）
+.venv\Scripts\python.exe -m uvicorn main:app --host 0.0.0.0 --port 8000
+
+# 3) 对比压测
+python perf/search_bench.py --keyword-url http://127.0.0.1:8080/search/list \
+                            --vector-url http://127.0.0.1:8080/api/ai/search
+```
+
+**踩过的坑**：
+- 入库时个别商品文本会让 embedding 接口返回 400，整页失败会中断整个任务
+  → 加了「批量失败则逐条重试、跳过坏数据」的兜底。
+- 先灌 2 万条时发现按 id 排序漏掉了整个类目（搜"降噪耳机"返回行李箱），
+  → 说明**向量检索的效果非常依赖索引覆盖度**，必须全量入库。
+
 ## 压测数据（JMeter）
 
 脚本：[`perf/hmall-load-test.jmx`](perf/hmall-load-test.jmx)（参数化，可覆盖 host/port/threads/loops）

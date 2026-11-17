@@ -13,6 +13,11 @@ from app.utils.text import chunk_text, truncate
 
 logger = logging.getLogger(__name__)
 
+# 查询向量缓存：热门搜索词重复率很高，而 embedding 是一次 ~300ms 的网络往返，
+# Milvus 检索本身只要几毫秒。缓存后同一句话的搜索能从 300ms 降到 10ms 级别。
+_QUERY_VECTOR_CACHE: dict[str, list[float]] = {}
+_QUERY_CACHE_MAX = 2048
+
 
 class VectorStoreService:
     """把「文本 -> 向量 -> 检索结果」这条链路收口在一个类里。"""
@@ -33,6 +38,23 @@ class VectorStoreService:
             raise VectorStoreUnavailable(str(exc)) from exc
 
     # ----------------------------------------------------------------- 检索
+    # 商品库要展示价格/图片/类目，所以显式指定输出字段；
+    # 政策库走 services/policy.py 自己的 repo，不受影响。
+    ITEM_OUTPUT_FIELDS = ("text", "item_id", "name", "price", "image", "category", "brand", "stock")
+
+    def query_vector(self, query: str) -> list[float]:
+        """把查询语句转成向量，带进程内缓存（同样的 query 只算一次）。"""
+        key = query.strip()
+        cached = _QUERY_VECTOR_CACHE.get(key)
+        if cached is not None:
+            return cached
+
+        vector = self.embed([key])[0]
+        if len(_QUERY_VECTOR_CACHE) >= _QUERY_CACHE_MAX:
+            _QUERY_VECTOR_CACHE.clear()
+        _QUERY_VECTOR_CACHE[key] = vector
+        return vector
+
     def search(
         self,
         query: str,
@@ -42,9 +64,11 @@ class VectorStoreService:
         filters: dict[str, Any] | None = None,
     ) -> list[SearchHit]:
         """语义检索。任何一步失败都抛 VectorStoreUnavailable，交给路由降级。"""
-        vector = self.embed([query])[0]
+        vector = self.query_vector(query)
         expr = self._build_filter_expr(filters or {})
-        rows = self._repo.search(vector, top_k=top_k, filter_expr=expr)
+        rows = self._repo.search(
+            vector, top_k=top_k, filter_expr=expr, output_fields=self.ITEM_OUTPUT_FIELDS
+        )
 
         hits: list[SearchHit] = []
         for row in rows:
@@ -58,10 +82,16 @@ class VectorStoreService:
                     name=row.get("name"),
                     score=round(score, 4),
                     snippet=truncate(row.get("text"), 160),
-                    metadata={k: v for k, v in row.items() if k not in {"vector", "text", "name", "item_id", "id", "score"}},
+                    metadata=self._item_metadata(row),
                 )
             )
         return hits
+
+    @staticmethod
+    def _item_metadata(row: dict[str, Any]) -> dict[str, Any]:
+        """挑出前端渲染商品卡片需要的字段，空值不返回，省带宽。"""
+        keys = ("price", "image", "category", "brand", "stock")
+        return {k: row[k] for k in keys if row.get(k) not in (None, "", 0)}
 
     # ----------------------------------------------------------------- 写入
     def ingest(

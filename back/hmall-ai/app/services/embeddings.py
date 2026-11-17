@@ -36,8 +36,12 @@ def _headers() -> dict[str, str]:
     }
 
 
-async def embed_texts(texts: Sequence[str], *, batch_size: int = 16) -> list[list[float]]:
-    """批量向量化。返回的向量顺序与入参严格一致。"""
+async def embed_texts(texts: Sequence[str], *, batch_size: int = 16, retries: int = 3) -> list[list[float]]:
+    """批量向量化。返回的向量顺序与入参严格一致。
+
+    加了重试：批量入库时很容易碰到 429（限流）或偶发的 5xx，
+    一次失败就中断会让整个离线任务前功尽弃（还得靠 --start-page 续传）。
+    """
     if not settings.siliconflow_api_key:
         raise EmbeddingError("未配置 SILICONFLOW_API_KEY，无法生成向量")
 
@@ -54,13 +58,25 @@ async def embed_texts(texts: Sequence[str], *, batch_size: int = 16) -> list[lis
                 "input": batch,
                 "encoding_format": "float",
             }
-            try:
-                resp = await client.post(_endpoint(), headers=_headers(), json=payload)
-            except httpx.HTTPError as exc:
-                raise EmbeddingError(f"请求 Embedding 服务失败: {exc}") from exc
+            resp = None
+            for attempt in range(retries):
+                try:
+                    resp = await client.post(_endpoint(), headers=_headers(), json=payload)
+                except httpx.HTTPError as exc:
+                    if attempt == retries - 1:
+                        raise EmbeddingError(f"请求 Embedding 服务失败: {exc}") from exc
+                    await asyncio.sleep(2 ** attempt)
+                    continue
 
-            if resp.status_code != 200:
-                raise EmbeddingError(f"Embedding 接口返回 {resp.status_code}: {resp.text[:300]}")
+                # 429 限流 / 5xx 服务端错误：退避后重试
+                if resp.status_code in (429, 500, 502, 503, 504) and attempt < retries - 1:
+                    await asyncio.sleep(2 ** attempt)
+                    continue
+                break
+
+            if resp is None or resp.status_code != 200:
+                raise EmbeddingError(f"Embedding 接口返回 {resp.status_code if resp else '-'}: "
+                                     f"{resp.text[:300] if resp else ''}")
 
             data = resp.json().get("data") or []
             # 有的服务不保证返回顺序，按 index 排一下

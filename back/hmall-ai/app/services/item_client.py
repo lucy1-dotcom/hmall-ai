@@ -34,6 +34,11 @@ class ItemClient:
         data = self._get("/search/list", {"key": key, "pageNo": 1, "pageSize": size})
         return list(data.get("list") or []) if isinstance(data, dict) else []
 
+    def list_items_page(self, page_no: int = 1, page_size: int = 100) -> dict[str, Any]:
+        """分页拉取商品（离线建索引用），返回 PageDTO：{total, pages, list}。"""
+        data = self._get("/items/page", {"pageNo": page_no, "pageSize": page_size})
+        return data if isinstance(data, dict) else {}
+
     def get_item(self, item_id: str | int) -> dict[str, Any] | None:
         """按 id 查商品详情。"""
         try:

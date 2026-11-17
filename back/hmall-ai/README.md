@@ -92,7 +92,8 @@ python main.py
 | GET | `/ai/health` | 健康检查（报告 LLM / Milvus / 网关的配置状态，不发起外部调用） |
 | GET | `/ai/ping` | 轻量探活 |
 | POST | `/ai/chat` | 智能客服：向量检索 + 大模型回答，返回引用来源 |
-| POST | `/ai/search` | 自然语言搜索商品；向量库不可用时降级为关键词搜索 |
+| POST | `/ai/search` | 商品语义搜索：查询向量化后在 `hmall_items` 做 ANN 检索；向量库不可用时降级为关键词搜索 |
+| POST | `/api/ai/search` | 同上，经 Java 网关转发（前端统一入口） |
 | POST | `/ai/knowledge/ingest` | 把商品文档切块向量化写入 Milvus |
 | POST | `/api/ai/chat` | **订单 Agent（SSE 流式）**：边生成边推，前端可做打字机效果 |
 | POST | `/api/ai/chat/sync` | 同一个 Agent 的非流式版本，返回一次性 JSON，便于调试 |
@@ -403,6 +404,57 @@ POST /api/ai/chat 200  {"tools_used":["search_policy"]}
 **踩坑记录**：Milvus 3.x 起，`VARCHAR` 主键必须显式传 `max_length`，否则建集合报
 `type param(max_length) should be specified for the field(id)`——`app/crud/milvus.py`
 里已经补上 `max_length=64`。
+
+## 商品语义检索（hmall_items）
+
+和售后政策 RAG 的区别：政策库检索的是**文档片段**，商品库检索的是**商品卡片**，
+返回的字段要能直接渲染（价格、图片、类目、品牌）。
+
+### 建索引
+
+```bash
+# item-service 已启动的前提下
+python ingest_items.py --limit 20000        # 先灌 2 万条试水
+python ingest_items.py                      # 全量 8.8 万条，约 25 分钟（~58 条/秒）
+python ingest_items.py --start-page 428     # 中断后从第 428 页续传
+python ingest_items.py --drop               # 改了文本拼接方式，重建集合
+```
+
+**文本怎么拼**：`名称 + 品牌 + 类目 + 规格`。
+只用商品名会漏掉语义线索（"华为 FreeBuds 5" 里没有"降噪"），
+加上品牌和类目召回明显更好。
+
+**空规格坑**：`spec` 字段是 JSON 字符串，空规格在库里存的是 `"{}"`，
+直接拼进去会变成 `商品名 华为 手机 {}` 这种噪声，所以脚本会过滤掉空 JSON。
+
+### 入库的两个工程细节
+
+1. **断点续传**：`--start-page` 从指定页继续，主键是商品 id，重复写入只会覆盖。
+2. **坏数据兜底**：个别商品文本会让 embedding 接口返回 400，
+   整页失败会中断整个任务 → 加了「整批失败就逐条重试、跳过坏数据并打印」的逻辑。
+   实测 88,476 条里有约 4,800 条被跳过。
+
+### 查询缓存
+
+`VectorStoreService.query_vector` 对查询向量做了进程内缓存（上限 2048 条）。
+原因：embedding 是一次约 300ms 的网络往返，而 Milvus 检索只要几毫秒，
+**不缓存的话语义搜索比 LIKE 还慢**。热门搜索词重复率高，缓存后收益很大。
+
+### 实测数据（83,674 条）
+
+| 查询 | 关键词 LIKE | 语义搜索 |
+|---|---|---|
+| 降噪耳机 | 0 条 | 10 条（耳机类） |
+| 适合打游戏的手机 | 0 条 | 10 条（荣耀 10 GT 游戏加速） |
+| 送女朋友的礼物 | 0 条 | 10 条（女士钱包/手拿包） |
+
+| 方案 | avg | p99 |
+|---|---|---|
+| 关键词搜索 | 97.4ms | 113.1ms |
+| 语义搜索（缓存命中） | 6.0ms | 19.2ms |
+| 语义搜索（未命中） | 337ms | 519ms |
+
+压测脚本在 `back/perf/search_bench.py`，两边都走网关（8080），保证比较公平。
 
 ## 和 Java 服务的对接
 

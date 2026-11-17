@@ -34,6 +34,6 @@ logs/
 *.pid
 
 # 本地向量库/模型缓存
-.data/
+data/
 .models/
 model_cache/
