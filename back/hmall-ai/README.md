@@ -95,6 +95,9 @@ python main.py
 | POST | `/ai/search` | 商品语义搜索：查询向量化后在 `hmall_items` 做 ANN 检索；向量库不可用时降级为关键词搜索 |
 | POST | `/api/ai/search` | 同上，经 Java 网关转发（前端统一入口） |
 | POST | `/ai/knowledge/ingest` | 把商品文档切块向量化写入 Milvus |
+| POST | `/ai/actions/{actionId}/confirm` | 确认并执行待确认动作（取消订单等写操作） |
+| POST | `/ai/actions/{actionId}/cancel` | 取消待确认动作，订单不受影响 |
+| GET | `/ai/actions/{actionId}` | 查询动作状态与执行结果 |
 | POST | `/api/ai/chat` | **订单 Agent（SSE 流式）**：边生成边推，前端可做打字机效果 |
 | POST | `/api/ai/chat/sync` | 同一个 Agent 的非流式版本，返回一次性 JSON，便于调试 |
 
@@ -431,6 +434,29 @@ BM25 融合在 20 块的小知识库上是负收益（中文 bigram 在短块上
 知识库扩到几百块以上、或关键词类问题变多时，可以切回 `hybrid_rerank`。
 
 rerank 失败会自动降级为召回顺序，不会让整个检索挂掉。
+
+## 写操作：待确认动作（Human-in-the-loop）
+
+Agent 现在有三个工具：`get_order_status`（读）、`search_policy`（读）、
+`request_cancel_order`（写）。
+
+**写操作不直接执行**，而是先落一条待确认动作：
+
+| 文件 | 职责 |
+|---|---|
+| `app/services/actions.py` | SQLite 存动作（id/user_id/type/params/status/TTL），状态机 `pending → executing → done \| failed \| cancelled \| expired` |
+| `app/tools/order.py#request_cancel_order` | 只创建动作，返回 `actionId` + `summary`，不碰订单 |
+| `app/routers/actions.py` | 确认 / 取消接口：校验归属、状态、是否过期，执行时调 Java |
+| `trade-service` `PUT /api/order/{orderId}/cancel` | 校验订单归属 + `closeUnpaidOrder`（条件更新 + 回补库存） |
+
+为什么这么设计（面试常问）：
+
+1. **模型会听错订单号**——写操作必须有人兜底，不能让 LLM 直接产生副作用；
+2. **可审计**——每笔写操作都有记录，能回答"谁在什么时候取消了哪一单"；
+3. **幂等**——重复点确认返回首次结果，不会重复回补库存；
+4. **防过期**——TTL 5 分钟，避免用户点了很久以前生成的确认按钮。
+
+实测数据见 `back/README.md` 的「AI 写操作（Human-in-the-loop）」一节。
 
 ## 商品语义检索（hmall_items）
 和售后政策 RAG 的区别：政策库检索的是**文档片段**，商品库检索的是**商品卡片**，

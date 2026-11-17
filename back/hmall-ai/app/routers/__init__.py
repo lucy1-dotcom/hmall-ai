@@ -2,12 +2,13 @@
 
 from fastapi import APIRouter
 
-from app.routers import chat, health, knowledge, search
+from app.routers import actions, chat, health, knowledge, search
 
 api_router = APIRouter()
 api_router.include_router(health.router)
 api_router.include_router(chat.router)
 api_router.include_router(search.router)
 api_router.include_router(knowledge.router)
+api_router.include_router(actions.router)
 
 __all__ = ["api_router"]

@@ -129,6 +129,12 @@ class Settings(BaseSettings):
     memory_backend: str = "sqlite"
     memory_db_path: str = "data/memory.db"
 
+    # --------------------------------------------------- 待确认动作（写操作）
+    # 模型生成的写操作（取消订单等）先落库，等用户确认后才执行
+    actions_db_path: str = "data/actions.db"
+    # 过期时间：超过这个时间没确认就作废，避免"点了三天前的按钮"
+    action_ttl_seconds: int = 300
+
     # ------------------------------------------------------- Nacos 服务注册
     # 打开后网关就能用 lb://hmall-ai 走服务发现，而不是写死地址
     nacos_enabled: bool = False

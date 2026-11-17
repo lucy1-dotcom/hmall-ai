@@ -12,12 +12,14 @@ from __future__ import annotations
 
 import json
 import logging
+import time
 from typing import Any
 
 import httpx
 from langchain_core.tools import tool
 
 from app.core.config import settings
+from app.services.actions import action_store
 
 logger = logging.getLogger(__name__)
 
@@ -69,6 +71,44 @@ async def get_order_status(user_id: str) -> str:
             "status": data.get("status"),
             "totalFee": data.get("totalFee"),
             "createTime": data.get("createTime"),
+        },
+        ensure_ascii=False,
+    )
+
+
+@tool
+async def request_cancel_order(user_id: str, order_id: str) -> str:
+    """为当前用户创建一条「取消订单」的待确认动作（**不会立即执行**）。
+
+    什么时候用：用户**明确要求**取消/撤销订单时（例如「帮我把订单取消了」）。
+    什么时候别用：用户只是问「能不能取消」「取消会怎样」——那是在咨询，直接按政策回答。
+
+    使用规则：
+    1. 必须传真实订单号，不能编造；不确定就先调 get_order_status 查最近一笔。
+    2. 调用后订单**并不会被取消**，只是生成了一个待确认动作，
+       你要把 summary 告诉用户，并提示他「在页面上点击确认后才会真正执行」。
+    3. 绝不要对用户说「已经帮您取消了」——执行与否由用户在确认接口里决定。
+
+    参数 user_id：当前登录用户 id，原样使用系统提示里给出的数字。
+    参数 order_id：要取消的订单号。
+    """
+    try:
+        action = action_store.create(
+            user_id=int(user_id),
+            action_type="cancel_order",
+            params={"orderId": str(order_id)},
+            summary=f"取消订单 {order_id}（取消后库存会回补，且不可撤销）",
+        )
+    except (TypeError, ValueError):
+        return "生成待确认动作失败：user_id 必须是数字"
+
+    return json.dumps(
+        {
+            "actionId": action.id,
+            "status": "pending_confirmation",
+            "summary": action.summary,
+            "expiresIn": max(0, int(action.expires_at - time.time())),
+            "nextStep": "等待用户在前端确认；确认接口为 POST /ai/actions/{actionId}/confirm",
         },
         ensure_ascii=False,
     )

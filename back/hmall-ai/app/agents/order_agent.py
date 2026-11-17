@@ -18,7 +18,7 @@ from langchain_core.messages import HumanMessage, RemoveMessage, ToolMessage
 
 from app.core.config import settings
 from app.core.memory import memory_store
-from app.tools.order import get_order_status
+from app.tools.order import get_order_status, request_cancel_order
 from app.tools.policy import search_policy
 
 logger = logging.getLogger(__name__)
@@ -29,7 +29,7 @@ class AgentNotConfigured(RuntimeError):
 
 
 # 工具集中在一处，便于测试断言和后续扩展
-AGENT_TOOLS = [get_order_status, search_policy]
+AGENT_TOOLS = [get_order_status, search_policy, request_cancel_order]
 
 # ---------------------------------------------------------------------------
 # 会话记忆
@@ -57,6 +57,11 @@ SYSTEM_PROMPT = """你是黑马商城（hmall）的智能客服，说话简洁�
 3. 其它问题（商品咨询、闲聊）直接回答，不要调用工具。
 4. 拿到工具结果后，用一到两句话自然语言转述，不要输出 JSON 原文。
 5. 记住上文已经确认过的事实（例如用户说过自己的订单号），不要重复追问。
+6. **写操作（取消订单）必须走两步**：用户明确要求取消时，先确认订单号
+   （不确定就先调 get_order_status 查最近一笔），再调用 request_cancel_order
+   生成待确认动作，然后把 actionId 和"请在页面点击确认"告诉用户。
+   **绝对不能声称订单已经取消**——真正执行发生在用户确认之后。
+7. 用户只是咨询"能不能取消""取消会怎样"时，不要生成动作，按政策回答即可。
 """
 
 

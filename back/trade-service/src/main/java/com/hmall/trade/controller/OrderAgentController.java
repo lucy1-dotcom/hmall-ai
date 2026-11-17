@@ -1,11 +1,15 @@
 package com.hmall.trade.controller;
 
+import com.hmall.common.exception.BadRequestException;
+import com.hmall.common.exception.ForbiddenException;
 import com.hmall.trade.domain.po.Order;
 import com.hmall.trade.service.IOrderService;
 import io.swagger.annotations.Api;
 import io.swagger.annotations.ApiOperation;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
@@ -50,6 +54,36 @@ public class OrderAgentController {
         result.put("statusCode", order.getStatus());
         result.put("totalFee", order.getTotalFee());
         result.put("createTime", order.getCreateTime());
+        return result;
+    }
+
+    /**
+     * 取消订单（AI 助理专用）。
+     *
+     * <p>这条接口只会被「用户确认后的待办动作」调用，不会由模型直接触发：
+     * Agent 侧先用工具生成一个待确认动作，用户点确认后才请求这里。</p>
+     *
+     * <p>两处校验：订单必须属于该用户；只有待支付（status=1）的订单能被关闭，
+     * 具体由 {@code closeUnpaidOrder} 用条件更新兜底，并发支付也不会误关。</p>
+     */
+    @ApiOperation("取消待支付订单（AI 助理在用户确认后调用）")
+    @PutMapping("/{orderId}/cancel")
+    public Map<String, Object> cancelOrder(
+            @PathVariable("orderId") Long orderId,
+            @RequestParam("userId") Long userId) {
+        Order order = orderService.getById(orderId);
+        if (order == null) {
+            throw new BadRequestException("订单不存在");
+        }
+        if (!userId.equals(order.getUserId())) {
+            throw new ForbiddenException("无权操作该订单");
+        }
+
+        boolean closed = orderService.closeUnpaidOrder(orderId);
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("orderId", orderId);
+        result.put("cancelled", closed);
+        result.put("message", closed ? "订单已取消，库存已回补" : "订单当前状态不允许取消（可能已支付或已关闭）");
         return result;
     }
 

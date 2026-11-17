@@ -224,6 +224,47 @@ python perf/rag_eval.py --modes vector hybrid  # 只跑两种
 4. **代价要认**：rerank 让单次检索从 346ms 涨到 667ms（多一次 API 往返），
    所以只对 10 个候选做精排，不做全量。
 
+## AI 写操作（Human-in-the-loop）
+
+读操作（查订单、查政策）可以让模型直接调工具；**写操作不行**——模型可能听错订单号，
+用户也可能只是随口一问。所以「取消订单」这类动作拆成两段：
+
+```
+1. 模型调用 request_cancel_order
+   → 只生成「待确认动作」（SQLite，5 分钟 TTL），返回 actionId
+   → 正文明确告诉用户「点击确认后才会执行」
+2. 用户点确认 → POST /ai/actions/{actionId}/confirm
+   → 校验归属 / 状态 / 是否过期
+   → 才调用 Java 的 PUT /api/order/{orderId}/cancel
+```
+
+| 保障 | 实现 |
+|---|---|
+| 防误操作 | 模型不能直接执行，必须由用户确认 |
+| 越权 | 动作记录 user_id，确认时比对，不一致返回 403 |
+| 重复执行 | 状态机 `pending → executing → done`，重复确认返回首次结果 |
+| 并发点击 | 先占位 `executing` 再执行，第二个请求 409 |
+| 动作过期 | TTL 5 分钟，读取时惰性判定并置 `expired` |
+| 并发支付误关单 | Java 侧 `closeUnpaidOrder` 用 `status=1 → 5` 条件更新兜底 |
+
+### 实测（订单 2083047037284134914）
+
+```
+① 用户："帮我把订单 2083047037284134914 取消掉"
+   Agent：调用 request_cancel_order（tools_used=[request_cancel_order]）
+   → 返回 act_1053c26c5d624efa，正文写明「点击确认后才真正执行」
+   → 此时订单 status 仍是 1（未执行）
+
+② 确认：POST /ai/actions/act_.../confirm  {"user_id":1}
+   → status=done，订单 status=1 → 5，closeTime 写入，库存回补
+
+③ 重复确认：返回「该操作已执行，返回首次执行结果」，库存没有二次回补
+
+④ 换用户确认（user_id=2）：403 无权操作该动作
+
+⑤ 生成动作后调用 /cancel：status=cancelled，订单保持不变
+```
+
 ## 压测数据（JMeter）
 
 脚本：[`perf/hmall-load-test.jmx`](perf/hmall-load-test.jmx)（参数化，可覆盖 host/port/threads/loops）

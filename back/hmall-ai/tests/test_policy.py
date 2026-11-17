@@ -26,10 +26,10 @@ def test_policy_chunking_respects_size() -> None:
     assert sum(len(c) for c in chunks) >= len(text)
 
 
-def test_agents_have_two_tools() -> None:
-    """订单、政策两个工具都要挂在 Agent 上。"""
+def test_agents_expose_expected_tools() -> None:
+    """订单查询、政策检索、取消订单（写操作）三个工具都要挂在 Agent 上。"""
     names = [tool.name for tool in AGENT_TOOLS]
-    assert names == ["get_order_status", "search_policy"]
+    assert names == ["get_order_status", "search_policy", "request_cancel_order"]
 
 
 def test_search_policy_requires_key(monkeypatch: pytest.MonkeyPatch) -> None:
