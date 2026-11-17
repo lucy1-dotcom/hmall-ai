@@ -32,7 +32,11 @@ spring:
           uri: lb://trade-service
           predicates:
             - Path=/api/order/**
-        - id: hmall-ai # Python AI 服务对外接口（语义搜索、知识库等）
+        - id: hmall-ai # Python AI 服务：前端经 Nginx 转发过来（Nginx 已把 /api 剥掉）
+          uri: lb://hmall-ai
+          predicates:
+            - Path=/ai/**
+        - id: hmall-ai-api # 直连网关时（不经 Nginx）的 /api/ai/**
           uri: lb://hmall-ai
           predicates:
             - Path=/api/ai/**
@@ -56,5 +60,6 @@ hm:
       - /hi
       - /api/order/** # 供 AI 服务内部调用，userId 由调用方显式传入
       - /api/ai/** # AI 语义搜索等公开接口，先放到网关统一入口
+      - /ai/** # 前端经 Nginx 转发时，/api 前缀已被剥掉，实际到达网关的是 /ai/**
       - /chat/** # AI 对话：经验证后转发给 Python，不走 JWT
       - /api/chat/** # 直连网关时的同上路径（Nginx 会剥掉 /api 前缀）

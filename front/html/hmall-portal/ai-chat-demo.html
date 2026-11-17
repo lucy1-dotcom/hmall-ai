@@ -1,59 +1,137 @@
 <!DOCTYPE html>
 <!--
-  hmall-ai 流式对话演示页（原生 JS，不依赖 Vue）
+  hmall AI 能力演示页（原生 JS，无框架依赖）
+
   访问：http://localhost:18080/ai-chat-demo.html
-  前置：hmall-ai 跑在 8087，且 .env 里配了 DEEPSEEK_API_KEY
+  请求链路：浏览器 → Nginx(18080, 去掉 /api) → 网关(8080) → hmall-ai(8000)
+
+  三个能力：
+  1. 智能客服：SSE 流式问答，可调用工具（订单查询 / 政策 RAG / 取消订单）
+  2. 写操作确认：Agent 生成待确认动作后，页面上点「确认执行」才会真正取消订单
+  3. 语义搜索：自然语言搜商品，走 Milvus 向量检索（对比关键词搜索 0 命中）
 -->
 <html lang="zh-CN">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>hmall AI 客服（流式演示）</title>
+  <title>hmall AI 演示 · 智能客服 / 语义搜索</title>
   <style>
     * { box-sizing: border-box; }
-    body { margin: 0; font-family: -apple-system, "Microsoft YaHei", sans-serif; background: #f5f5f5; }
-    .wrap { max-width: 720px; margin: 40px auto; background: #fff; border-radius: 8px; box-shadow: 0 2px 12px rgba(0,0,0,.08); overflow: hidden; }
-    header { padding: 16px 20px; border-bottom: 1px solid #eee; font-weight: 600; }
+    body { margin: 0; font-family: -apple-system, "Microsoft YaHei", sans-serif; background: #f5f6f7; color: #333; }
+    .wrap { max-width: 860px; margin: 32px auto; background: #fff; border-radius: 10px; box-shadow: 0 2px 16px rgba(0,0,0,.08); overflow: hidden; }
+
+    header { display: flex; align-items: center; gap: 16px; padding: 0 20px; border-bottom: 1px solid #eee; }
+    header h1 { font-size: 16px; margin: 0; padding: 16px 0; font-weight: 600; }
+    .tabs { display: flex; margin-left: auto; }
+    .tab { padding: 16px 14px; font-size: 14px; color: #888; cursor: pointer; border-bottom: 2px solid transparent; user-select: none; }
+    .tab.active { color: #e4393c; border-bottom-color: #e4393c; font-weight: 600; }
+
+    .panel { display: none; }
+    .panel.active { display: block; }
+
+    /* ---------------- 对话 ---------------- */
     #chat { height: 420px; overflow-y: auto; padding: 16px 20px; }
     .row { display: flex; margin-bottom: 12px; }
     .row.me { justify-content: flex-end; }
-    .bubble { max-width: 78%; padding: 10px 14px; border-radius: 10px; line-height: 1.6; white-space: pre-wrap; word-break: break-word; }
+    .bubble { max-width: 76%; padding: 10px 14px; border-radius: 10px; line-height: 1.65; white-space: pre-wrap; word-break: break-word; font-size: 14px; }
     .me .bubble { background: #e4393c; color: #fff; }
-    .ai .bubble { background: #f0f2f5; color: #333; }
+    .ai .bubble { background: #f0f2f5; }
     .ai .bubble.typing::after { content: '▌'; animation: blink 1s step-end infinite; }
     @keyframes blink { 50% { opacity: 0; } }
     #status { min-height: 18px; font-size: 12px; color: #999; padding: 0 20px 8px; }
-    form { display: flex; gap: 10px; padding: 14px 20px; border-top: 1px solid #eee; }
-    input { flex: 1; padding: 10px 12px; border: 1px solid #ddd; border-radius: 6px; font-size: 14px; }
-    button { padding: 10px 18px; border: 0; border-radius: 6px; background: #e4393c; color: #fff; cursor: pointer; }
-    button:disabled { opacity: .5; cursor: not-allowed; }
+    form.composer { display: flex; gap: 10px; padding: 14px 20px; border-top: 1px solid #eee; }
+    input[type=text] { flex: 1; padding: 10px 12px; border: 1px solid #ddd; border-radius: 6px; font-size: 14px; outline: none; }
+    input[type=text]:focus { border-color: #e4393c; }
+    .btn { padding: 10px 18px; border: 0; border-radius: 6px; background: #e4393c; color: #fff; cursor: pointer; font-size: 14px; }
+    .btn:disabled { opacity: .5; cursor: not-allowed; }
+    .btn.ghost { background: #fff; color: #666; border: 1px solid #ddd; }
+
+    /* ---------------- 待确认动作卡片 ---------------- */
+    .action-card { margin: 4px 0 14px 0; padding: 14px 16px; border: 1px solid #ffd8a8; background: #fffaf0; border-radius: 8px; }
+    .action-card .title { font-size: 13px; font-weight: 600; color: #d46b08; margin-bottom: 6px; }
+    .action-card .summary { font-size: 14px; line-height: 1.6; margin-bottom: 10px; }
+    .action-card .ops { display: flex; gap: 10px; }
+    .action-card .result { margin-top: 10px; font-size: 13px; color: #555; }
+    .action-card .result.ok { color: #389e0d; }
+    .action-card .result.err { color: #cf1322; }
+
+    /* ---------------- 语义搜索 ---------------- */
+    .search-bar { display: flex; gap: 10px; padding: 20px; border-bottom: 1px solid #f0f0f0; }
+    .chips { padding: 0 20px 12px; display: flex; gap: 8px; flex-wrap: wrap; }
+    .chip { font-size: 12px; padding: 4px 10px; border: 1px solid #eee; border-radius: 12px; color: #666; cursor: pointer; }
+    .chip:hover { border-color: #e4393c; color: #e4393c; }
+    #searchMeta { padding: 0 20px 8px; font-size: 12px; color: #999; min-height: 18px; }
+    #results { padding: 0 20px 20px; display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 14px; }
+    .card { border: 1px solid #f0f0f0; border-radius: 8px; overflow: hidden; display: flex; flex-direction: column; }
+    .card img { width: 100%; height: 140px; object-fit: cover; background: #fafafa; }
+    .card .body { padding: 10px; flex: 1; display: flex; flex-direction: column; gap: 6px; }
+    .card .name { font-size: 13px; line-height: 1.45; height: 38px; overflow: hidden; }
+    .card .price { color: #e4393c; font-weight: 600; font-size: 15px; }
+    .card .tags { display: flex; gap: 6px; flex-wrap: wrap; }
+    .tag { font-size: 11px; color: #888; background: #f5f5f5; border-radius: 3px; padding: 2px 6px; }
+    .tag.score { color: #389e0d; background: #f6ffed; }
+    .empty { grid-column: 1/-1; text-align: center; color: #999; padding: 30px 0; font-size: 13px; }
+
     .hint { padding: 10px 20px; font-size: 12px; color: #999; border-top: 1px dashed #eee; }
   </style>
 </head>
 <body>
 <div class="wrap">
-  <header>hmall 智能客服 · SSE 流式演示</header>
-  <div id="chat"></div>
-  <div id="status"></div>
-  <form id="form">
-    <input id="msg" autocomplete="off" placeholder="试试问：拆封的手机能退吗？" />
-    <button id="send" type="submit">发送</button>
-  </form>
-  <div class="hint">会话 id 存在 localStorage，刷新页面还能接着聊（记忆保留在 AI 服务内存里，重启即清空）。</div>
+  <header>
+    <h1>hmall AI 能力演示</h1>
+    <div class="tabs">
+      <div class="tab active" data-tab="chat">智能客服</div>
+      <div class="tab" data-tab="search">语义搜索</div>
+    </div>
+  </header>
+
+  <!-- ============ 对话 ============ -->
+  <section class="panel active" id="panel-chat">
+    <div id="chat"></div>
+    <div id="status"></div>
+    <form class="composer" id="form">
+      <input id="msg" type="text" autocomplete="off" placeholder="试试问：拆封的手机能退吗？" />
+      <button class="btn" id="send" type="submit">发送</button>
+    </form>
+    <div class="hint">
+      写操作会先生成「待确认动作」，点卡片上的按钮才真正执行 —— 模型不能直接改你的订单。
+    </div>
+  </section>
+
+  <!-- ============ 语义搜索 ============ -->
+  <section class="panel" id="panel-search">
+    <div class="search-bar">
+      <input id="q" type="text" autocomplete="off" placeholder="用一句话描述你想要的东西，比如「适合打游戏的手机」" />
+      <button class="btn" id="searchBtn">搜索</button>
+    </div>
+    <div class="chips" id="chips"></div>
+    <div id="searchMeta"></div>
+    <div id="results"></div>
+    <div class="hint">
+      走 Milvus 向量检索（bge-m3 + 8.3 万条商品）。这些问法在 MySQL 关键词搜索里命中 0 条，语义搜索能召回。
+    </div>
+  </section>
 </div>
 
 <script>
-  // 前端只跟 Java 网关打交道：Nginx 把 /api 剥掉后转给 8080，由 AiChatController 再转发给 Python
-  // （不给 Python 开跨域，也不用在前端暴露 8000 端口）
-  const AI_BASE = '';
+  // 同源请求：Nginx 把 /api 前缀剥掉后转给网关 8080，避免跨域
+  const API = '';
 
+  /* ------------------------------------------------------------------ 标签页 */
+  document.querySelectorAll('.tab').forEach(tab => {
+    tab.addEventListener('click', () => {
+      document.querySelectorAll('.tab').forEach(t => t.classList.toggle('active', t === tab));
+      document.querySelectorAll('.panel').forEach(p => p.classList.toggle('active', p.id === 'panel-' + tab.dataset.tab));
+    });
+  });
+
+  /* -------------------------------------------------------------------- 对话 */
   const chatEl = document.getElementById('chat');
   const statusEl = document.getElementById('status');
   const form = document.getElementById('form');
   const input = document.getElementById('msg');
   const sendBtn = document.getElementById('send');
 
-  // 会话 id 由服务端 meta 事件返回，这里缓存下来，下一轮继续用
   let sessionId = localStorage.getItem('hmall_ai_session') || null;
 
   function addBubble(text, role) {
@@ -68,9 +146,73 @@
     return bubble;
   }
 
+  /** 在回答下面挂一张「待确认动作」卡片 */
+  function addActionCard(actionId) {
+    const card = document.createElement('div');
+    card.className = 'action-card';
+    card.innerHTML = `
+      <div class="title">待确认操作 · 尚未执行</div>
+      <div class="summary">Agent 生成的写操作需要你确认后才会真正提交。</div>
+      <div class="ops">
+        <button class="btn confirm">确认执行</button>
+        <button class="btn ghost cancel">再想想</button>
+      </div>
+      <div class="result"></div>`;
+
+    const resultEl = card.querySelector('.result');
+    const confirmBtn = card.querySelector('.confirm');
+    const cancelBtn = card.querySelector('.cancel');
+
+    const lock = (msg, cls) => {
+      confirmBtn.disabled = true;
+      cancelBtn.disabled = true;
+      resultEl.textContent = msg;
+      resultEl.className = 'result ' + (cls || '');
+    };
+
+    confirmBtn.addEventListener('click', async () => {
+      confirmBtn.disabled = true;
+      resultEl.textContent = '执行中…';
+      try {
+        const res = await fetch(`${API}/api/ai/actions/${actionId}/confirm`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ user_id: 1 })
+        });
+        const data = await res.json();
+        if (!res.ok) return lock('执行失败：' + (data.detail || res.status), 'err');
+
+        const payload = data.result || {};
+        lock(`✅ ${payload.message || '执行成功'}（actionId=${data.actionId}）`, 'ok');
+        // 把结果也写回对话，方便截图
+        addBubble('【系统】' + (payload.message || '操作已执行'), 'ai');
+      } catch (err) {
+        lock('执行失败：' + err.message, 'err');
+      }
+    });
+
+    cancelBtn.addEventListener('click', async () => {
+      cancelBtn.disabled = true;
+      try {
+        const res = await fetch(`${API}/api/ai/actions/${actionId}/cancel`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ user_id: 1 })
+        });
+        const data = await res.json();
+        lock(res.ok ? '已取消，订单没有任何改动' : ('取消失败：' + (data.detail || res.status)), res.ok ? 'ok' : 'err');
+      } catch (err) {
+        lock('取消失败：' + err.message, 'err');
+      }
+    });
+
+    chatEl.appendChild(card);
+    chatEl.scrollTop = chatEl.scrollHeight;
+  }
+
   /**
    * 发送消息并消费 SSE 流。
-   * 注意：原生 EventSource 只支持 GET，这里必须用 fetch + ReadableStream 手动解析。
+   * 原生 EventSource 只支持 GET，所以这里用 fetch + ReadableStream 手动解析。
    */
   async function chat(message) {
     addBubble(message, 'me');
@@ -79,13 +221,12 @@
     statusEl.textContent = '连接中…';
 
     let answer = '';
-    const res = await fetch(AI_BASE + '/api/chat/send', {
+    const res = await fetch(API + '/api/chat/send', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ user_id: 1, message, session_id: sessionId })
     });
 
-    // 参数错误 / 没配密钥等情况会在这里就返回普通 JSON，而不是流
     if (!res.ok) {
       const err = await res.json().catch(() => ({}));
       bubble.classList.remove('typing');
@@ -102,10 +243,8 @@
       const { done, value } = await reader.read();
       if (done) break;
 
-      // stream: true 保证多字节汉字被完整解码
       buffer += decoder.decode(value, { stream: true });
 
-      // SSE 以空行分隔事件，这里按 \n\n 切包，剩下的留到下次
       let sep;
       while ((sep = buffer.indexOf('\n\n')) >= 0) {
         const rawEvent = buffer.slice(0, sep);
@@ -126,7 +265,7 @@
               break;
             case 'token':
               answer += payload.content;
-              bubble.textContent = answer;            // 打字机效果
+              bubble.textContent = answer;
               chatEl.scrollTop = chatEl.scrollHeight;
               break;
             case 'error':
@@ -137,6 +276,9 @@
             case 'done':
               bubble.classList.remove('typing');
               statusEl.textContent = '完成';
+              // 回答里带 actionId 说明这是一次写操作，挂上确认卡片
+              const match = answer.match(/act_[0-9a-f]{16}/);
+              if (match) addActionCard(match[0]);
               return;
             default:
               break;
@@ -162,6 +304,102 @@
       input.focus();
     }
   });
+
+  /* ------------------------------------------------------------------ 语义搜索 */
+  const qEl = document.getElementById('q');
+  const searchBtn = document.getElementById('searchBtn');
+  const resultsEl = document.getElementById('results');
+  const searchMeta = document.getElementById('searchMeta');
+  const chipsEl = document.getElementById('chips');
+
+  ['适合打游戏的手机', '送女朋友的礼物', '便宜的行李箱', '真皮女包'].forEach(text => {
+    const chip = document.createElement('span');
+    chip.className = 'chip';
+    chip.textContent = text;
+    chip.addEventListener('click', () => { qEl.value = text; doSearch(); });
+    chipsEl.appendChild(chip);
+  });
+
+  function priceText(fen) {
+    if (!fen) return '—';
+    return '¥' + (fen / 100).toFixed(2);
+  }
+
+  async function doSearch() {
+    const query = qEl.value.trim();
+    if (!query) return;
+
+    searchBtn.disabled = true;
+    searchMeta.textContent = '检索中…';
+    resultsEl.innerHTML = '';
+    const started = performance.now();
+
+    try {
+      const res = await fetch(API + '/api/ai/search', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ query, top_k: 8 })
+      });
+      const data = await res.json();
+      const cost = (performance.now() - started).toFixed(0);
+
+      if (!res.ok) {
+        searchMeta.textContent = '搜索失败：' + (data.detail || res.status);
+        return;
+      }
+
+      searchMeta.textContent = data.degraded
+        ? `关键词降级模式：命中 ${data.total} 条（${cost}ms）—— 向量库不可用`
+        : `语义检索：命中 ${data.total} 条，耗时 ${cost}ms（含 embedding + Milvus）`;
+
+      if (!data.hits || !data.hits.length) {
+        resultsEl.innerHTML = '<div class="empty">没有找到相关商品</div>';
+        return;
+      }
+
+      for (const hit of data.hits) {
+        const meta = hit.metadata || {};
+        const card = document.createElement('div');
+        card.className = 'card';
+        card.innerHTML = `
+          <img src="${meta.image || ''}" alt="" onerror="this.style.display='none'" />
+          <div class="body">
+            <div class="name">${hit.name || '（无标题）'}</div>
+            <div class="price">${priceText(meta.price)}</div>
+            <div class="tags">
+              ${meta.category ? `<span class="tag">${meta.category}</span>` : ''}
+              ${meta.brand ? `<span class="tag">${meta.brand}</span>` : ''}
+              <span class="tag score">score ${hit.score}</span>
+            </div>
+          </div>`;
+        resultsEl.appendChild(card);
+      }
+    } catch (err) {
+      searchMeta.textContent = '搜索失败：' + err.message;
+    } finally {
+      searchBtn.disabled = false;
+    }
+  }
+
+  searchBtn.addEventListener('click', doSearch);
+  qEl.addEventListener('keydown', (e) => { if (e.key === 'Enter') doSearch(); });
+
+  /* -------------------------------------------------- 用 URL 参数直接打开某个 tab
+     例：ai-chat-demo.html?tab=search&q=降噪耳机  → 打开就自动搜索
+     演示时不用手点，截图/录屏也方便。
+  ------------------------------------------------------------------------ */
+  (function applyUrlParams() {
+    const params = new URLSearchParams(location.search);
+    const tab = params.get('tab');
+    if (tab === 'search') {
+      document.querySelector('.tab[data-tab="search"]').click();
+      const q = params.get('q');
+      if (q) { qEl.value = q; doSearch(); }
+    } else {
+      const msg = params.get('ask');
+      if (msg) { input.value = msg; form.requestSubmit(); }
+    }
+  })();
 </script>
 </body>
 </html>

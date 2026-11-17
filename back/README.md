@@ -265,6 +265,22 @@ python perf/rag_eval.py --modes vector hybrid  # 只跑两种
 ⑤ 生成动作后调用 /cancel：status=cancelled，订单保持不变
 ```
 
+## 前端演示页
+
+`front/html/hmall-portal/ai-chat-demo.html` → <http://localhost:18080/ai-chat-demo.html>
+
+| 功能 | 说明 |
+|---|---|
+| 智能客服 | SSE 流式对话；回复里带 `actionId` 时自动挂出「待确认操作」卡片，点「确认执行」才真正取消订单 |
+| 语义搜索 | 自然语言搜商品，展示图片/价格/类目/品牌/相似度，并显示端到端耗时 |
+| URL 直达 | `?tab=search&q=适合打游戏的手机`、`?ask=帮我把订单 xxx 取消`，方便演示和截图 |
+
+**请求链路**：浏览器 → Nginx(18080，把 `/api` 前缀剥掉) → 网关(8080) → hmall-ai(8000)。
+
+> 踩坑：Nginx 的 `rewrite /api/(.*) /$1` 会把 `/api/ai/search` 变成 `/ai/search`，
+> 所以网关要**同时**放行 `/ai/**`（Nginx 转发后）和 `/api/ai/**`（直连），
+> 否则前端拿到的是 401 —— 这正是联调时真实踩到的问题。
+
 ## 压测数据（JMeter）
 
 脚本：[`perf/hmall-load-test.jmx`](perf/hmall-load-test.jmx)（参数化，可覆盖 host/port/threads/loops）
