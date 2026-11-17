@@ -405,8 +405,34 @@ POST /api/ai/chat 200  {"tools_used":["search_policy"]}
 `type param(max_length) should be specified for the field(id)`——`app/crud/milvus.py`
 里已经补上 `max_length=64`。
 
-## 商品语义检索（hmall_items）
+### 检索策略：向量 / 混合 / 精排
 
+`POLICY_RETRIEVAL_MODE` 支持四种模式，默认 `vector_rerank`：
+
+| 模式 | 说明 |
+|---|---|
+| `vector` | 纯向量召回（Milvus ANN） |
+| `vector_rerank` | 向量召回后用 bge-reranker 精排（默认） |
+| `hybrid` | 向量 + BM25 双路召回，加权 RRF 融合 |
+| `hybrid_rerank` | 融合后再精排 |
+
+30 条评测集实测（`back/perf/rag_eval.py`，知识库 20 块，每问取 3 块）：
+
+| 模式 | Recall@1 | Recall@3 | MRR | 平均耗时 |
+|---|---|---|---|---|
+| `vector` | **90.0%** | 93.3% | 0.917 | 346ms |
+| `vector_rerank` | 86.7% | **100.0%** | 0.933 | 667ms |
+| `hybrid` | 83.3% | 96.7% | 0.894 | 332ms |
+| `hybrid_rerank` | 86.7% | **100.0%** | 0.933 | 707ms |
+
+**结论**：收益几乎全部来自 rerank（Recall@3 93.3% → 100%），
+BM25 融合在 20 块的小知识库上是负收益（中文 bigram 在短块上噪声大），
+所以默认用 `vector_rerank`——效果和 `hybrid_rerank` 一样但快 40ms。
+知识库扩到几百块以上、或关键词类问题变多时，可以切回 `hybrid_rerank`。
+
+rerank 失败会自动降级为召回顺序，不会让整个检索挂掉。
+
+## 商品语义检索（hmall_items）
 和售后政策 RAG 的区别：政策库检索的是**文档片段**，商品库检索的是**商品卡片**，
 返回的字段要能直接渲染（价格、图片、类目、品牌）。
 

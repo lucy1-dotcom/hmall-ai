@@ -84,6 +84,20 @@ class MilvusRepository:
         return len(rows)
 
     # ------------------------------------------------------------------ 查询
+    def query_all(
+        self,
+        output_fields: Sequence[str] = ("text", "source", "chunk_index"),
+        limit: int = 10000,
+    ) -> list[dict[str, Any]]:
+        """把集合里的数据全量拉出来（知识库很小，用于构建 BM25 索引）。"""
+        rows = self.client.query(
+            collection_name=self.collection,
+            filter="",
+            output_fields=["id", *output_fields],
+            limit=limit,
+        )
+        return [dict(r) for r in rows]
+
     def search(
         self,
         vector: Sequence[float],

@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 from functools import lru_cache
+from pathlib import Path
 from typing import List
 
 from pydantic import Field, field_validator, model_validator
@@ -16,12 +17,17 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 _DEFAULT_LLM_BASE_URL = "https://api.deepseek.com/v1"
 _DEFAULT_LLM_MODEL = "deepseek-chat"
 
+# .env 用绝对路径：pydantic-settings 默认按「当前工作目录」找 .env，
+# 从 perf/ 或 tests/ 里跑脚本时就找不到，会误报「未配置 API Key」。
+_PROJECT_ROOT = Path(__file__).resolve().parents[2]
+_ENV_FILE = _PROJECT_ROOT / ".env"
+
 
 class Settings(BaseSettings):
     """服务配置项，字段名即环境变量名（大小写不敏感）。"""
 
     model_config = SettingsConfigDict(
-        env_file=".env",
+        env_file=str(_ENV_FILE),
         env_file_encoding="utf-8",
         case_sensitive=False,
         extra="ignore",
@@ -92,6 +98,23 @@ class Settings(BaseSettings):
     policy_collection: str = "hmall_policy"
     policy_top_k: int = 3
     policy_file: str = "policy.txt"
+    # 政策检索策略：
+    #   vector         纯向量
+    #   vector_rerank  向量召回 + 精排（默认，实测 Recall@3 100%）
+    #   hybrid         向量 + BM25，加权 RRF 融合
+    #   hybrid_rerank  融合后再精排
+    # 实测（perf/rag_eval.py，30 条评测集，20 块知识库）：
+    #   收益主要来自 rerank（Recall@3 93.3% -> 100%），BM25 融合在这个规模上没有正收益，
+    #   所以默认用 vector_rerank；知识库变大或关键词类问题变多时可以切 hybrid_rerank。
+    policy_retrieval_mode: str = "vector_rerank"
+    # 每路召回的候选数，融合/重排后再截到 policy_top_k
+    policy_candidate_k: int = 10
+    # RRF 融合时 BM25 那一路的权重（向量固定 1.0）：
+    # 中文 bigram 的 BM25 噪声偏大，等权会把好结果挤下去，实测 0.5 更稳
+    policy_bm25_weight: float = 0.5
+    # 重排模型（硅基流动 /v1/rerank）
+    rerank_model: str = "BAAI/bge-reranker-v2-m3"
+    rerank_enabled: bool = True
 
     # ------------------------------------------------------------- 业务微服务
     # 通过网关访问 item-service / search 等 Java 服务
